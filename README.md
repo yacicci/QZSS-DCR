@@ -19,7 +19,7 @@ QZSS DC Report Service Decode Libraryを利用していますが、そのまま�
 
 src/QZQSM.cpp の4484行の修正
 > uint32_t sec;
-↓
+> ↓
 > time_t sec;
 
 
