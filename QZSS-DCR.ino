@@ -26,6 +26,28 @@ void setup() {
   memset(ubx_frame, 0, sizeof(ubx_frame));
 }
 
+bool calc_checksum(uint8_t *p) {
+  uint8_t ck_a = 0;
+  uint8_t ck_b = 0;
+  uint16_t payload_length = *(uint16_t *)&p[4];
+  for (int i = 0; i < payload_length + 4; i++) {
+    ck_a += p[2 + i];
+    ck_b += ck_a;
+  }
+  return ((ck_a == p[6 + payload_length]) && (ck_b == p[7 + payload_length]));
+}
+
+uint32_t calc_crc24q(uint8_t *p, int len) {
+  int i, j;
+  uint32_t crc = 0;
+  for (i = 0; i < len; i++) {
+    crc ^= (uint32_t)p[i] << 16;
+    for (j = 0; j < 8; j++)
+      if ((crc <<= 1) & 0x1000000) crc ^= 0x1864cfb;  // CRC24Q
+  }
+  return crc;
+}
+
 void loop() {
   static File txtFile;
   static QZQSM report;
@@ -58,69 +80,75 @@ void loop() {
     ubx_frame[sizeof(ubx_frame) - 1] = c;
 
     if (memcmp(ubx_frame, ubx_nav_pvt, sizeof(ubx_nav_pvt)) == 0) {  // UBX-NAV-PVT
-      if (txtFile) {
-        for (int i = 0; i < sizeof(ubx_frame); i++) {
-          char str[4];
-          sprintf(str, "%02x,", ubx_frame[i]);
-          txtFile.print(str);
+      if (calc_checksum(ubx_frame)) {
+        if (txtFile) {
+          for (int i = 0; i < sizeof(ubx_frame); i++) {
+            char str[4];
+            sprintf(str, "%02x,", ubx_frame[i]);
+            txtFile.print(str);
+          }
+          txtFile.print("\n");
         }
-        txtFile.print("\n");
-      }
-      if ((ubx_frame[17] & 0b00000011) == 0b00000011) {  // ValidTime == 1 && ValidDate == 1
-        struct tm tm;
-        tm.tm_sec = ubx_frame[16];
-        tm.tm_min = ubx_frame[15];
-        tm.tm_hour = ubx_frame[14];
-        tm.tm_mday = ubx_frame[13];
-        tm.tm_mon = ubx_frame[12] - 1;
-        tm.tm_year = *(uint16_t *)&ubx_frame[10] - 1900;
-        sec = mktime(&tm);
-        sec = sec + 9 * 60 * 60;  // UTC -> JST
-      }
-      if (ubx_frame[26] > 1) {
-        lon = *(int32_t *)&ubx_frame[30];
-        lat = *(int32_t *)&ubx_frame[34];
+        if ((ubx_frame[17] & 0b00000011) == 0b00000011) {  // ValidTime == 1 && ValidDate == 1
+          struct tm tm;
+          tm.tm_sec = ubx_frame[16];
+          tm.tm_min = ubx_frame[15];
+          tm.tm_hour = ubx_frame[14];
+          tm.tm_mday = ubx_frame[13];
+          tm.tm_mon = ubx_frame[12] - 1;
+          tm.tm_year = *(uint16_t *)&ubx_frame[10] - 1900;
+          sec = mktime(&tm);
+          sec += 9 * 60 * 60;  // UTC -> JST
+        }
+        if (ubx_frame[26] > 1) {
+          lon = *(int32_t *)&ubx_frame[30];
+          lat = *(int32_t *)&ubx_frame[34];
+        }
       }
     }
 
     if (memcmp(ubx_frame, ubx_rxm_sfrbx, sizeof(ubx_rxm_sfrbx)) == 0) {  // UBX-RXM-SFRBX, gnssId = 5(QZSS)
-      if (txtFile) {
-        for (int i = 0; i < sizeof(ubx_frame); i++) {
-          char str[4];
-          sprintf(str, "%02x,", ubx_frame[i]);
-          txtFile.print(str);
-        }
-        txtFile.print("\n");
-      }
-
-      for (int i = 0; i < sizeof(dcr_message); i += 4) {  // Little Endian -> Big Endian
-        *(uint32_t *)&dcr_message[i] = __builtin_bswap32(*(uint32_t *)&ubx_frame[14 + i]);
-      }
-
-      if (txtFile) {
-        for (int i = 0; i < sizeof(dcr_message); i++) {
-          char str[4];
-          sprintf(str, "%02x,", dcr_message[i]);
-          txtFile.print(str);
-        }
-        txtFile.print("\n");
-      }
-
-      if (((dcr_message[1] >> 2) == 43) || ((dcr_message[1] >> 2) == 44)) {  // Message Type 43 or 44
-        struct tm tm;
-        gmtime_r(&sec, &tm);
-        report.SetYear(tm.tm_year + 1900);
-        report.Decode(dcr_message);
-        M5.Display.clear();
-        M5.Display.setCursor(0, 0);
-        M5.Display.println(report.GetReport());
+      if (calc_checksum(ubx_frame)) {
         if (txtFile) {
-          txtFile.print(ctime(&sec));
-          txtFile.print(lat);
-          txtFile.print(",");
-          txtFile.print(lon);
+          for (int i = 0; i < sizeof(ubx_frame); i++) {
+            char str[4];
+            sprintf(str, "%02x,", ubx_frame[i]);
+            txtFile.print(str);
+          }
           txtFile.print("\n");
-          txtFile.println(report.GetReport());
+        }
+
+        for (int i = 0; i < sizeof(dcr_message); i += 4) {  // Little Endian -> Big Endian
+          *(uint32_t *)&dcr_message[i] = __builtin_bswap32(*(uint32_t *)&ubx_frame[14 + i]);
+        }
+        dcr_message[sizeof(dcr_message) - 1] &= 0b11000000; // dcr_message is 250bits(8bits * 31 + 2bits)
+        if (calc_crc24q(dcr_message, sizeof(dcr_message)) == 0) {
+          if (txtFile) {
+            for (int i = 0; i < sizeof(dcr_message); i++) {
+              char str[4];
+              sprintf(str, "%02x,", dcr_message[i]);
+              txtFile.print(str);
+            }
+            txtFile.print("\n");
+          }
+
+          if (((dcr_message[1] >> 2) == 43) || ((dcr_message[1] >> 2) == 44)) {  // Message Type 43 or 44
+            struct tm tm;
+            gmtime_r(&sec, &tm);
+            report.SetYear(tm.tm_year + 1900);
+            report.Decode(dcr_message);
+            M5.Display.clear();
+            M5.Display.setCursor(0, 0);
+            M5.Display.println(report.GetReport());
+            if (txtFile) {
+              txtFile.print(ctime(&sec));
+              txtFile.print(lat);
+              txtFile.print(",");
+              txtFile.print(lon);
+              txtFile.print("\n");
+              txtFile.println(report.GetReport());
+            }
+          }
         }
       }
     }
