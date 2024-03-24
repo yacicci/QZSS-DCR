@@ -2,6 +2,7 @@
 # QZSS-DCRとは
 
 ATOMS3 + ATOMIC GPS BaseでQZSSの災危通報を受信し、災危通報の表示及びTFカードへの保存を行うスケッチです。
+
 <img src="./doc/images/photo1.jpg" width="320">
 
 
@@ -10,6 +11,7 @@ ATOMS3 + ATOMIC GPS BaseでQZSSの災危通報を受信し、災危通報の表�
 ATOMIC GPS Base内蔵のGNSSモジュールは出荷時、QZSSの受信など無効になっているようです。
 ATOMIC GPS Base内では、GNSSモジュールのRX端子は未接続なので分解とPCへの接続、そして設定変更が必要です。
 内蔵のGNSSモジュールは「Beitian BN-200」でした。BN-200のコネクタはQwiicコネクタ(JST SH 4pin?)と形状互換があるようです。
+
 <img src="./doc/images/photo2.jpg" width="320">
 
 BN-200はu-bloxのチップセットを使用しているようなので、PCからu-blox u-centerを使い設定の変更が行えます。
@@ -59,4 +61,5 @@ time_t sec;
 
 ATOMS3の画面をクリックするとファイルオープンとクローズをトグル操作できます。
 災危通報を受信したときに画面表示とTFカードへの保存を行います。
-<img src="./doc/images/fig1.jpg" width="320">
+
+<img src="./doc/images/fig1.png" width="320">
